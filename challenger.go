@@ -20,8 +20,8 @@ import (
 
 	datalayr "github.com/Layr-Labs/datalayr/common/contracts"
 	kzg "github.com/Layr-Labs/datalayr/common/crypto/go-kzg-bn254"
-	rc "github.com/Layr-Labs/datalayr/middleware/rollup-example/challenger/common/BVM_EigenDataLayrChain"
 	chain "github.com/Layr-Labs/datalayr/middleware/rollup-example/utils/contracts"
+	rc "github.com/mantlenetworkio/da-challenger/common/BVM_EigenDataLayrChain"
 
 	"github.com/Layr-Labs/datalayr/common/graphView"
 	pb "github.com/Layr-Labs/datalayr/common/interfaces/interfaceRetrieverServer"

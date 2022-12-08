@@ -5,8 +5,8 @@ import (
 	"github.com/urfave/cli"
 
 	"github.com/Layr-Labs/datalayr/common/logging"
-	"github.com/Layr-Labs/datalayr/middleware/rollup-example/challenger/flags"
 	"github.com/Layr-Labs/datalayr/middleware/rollup-example/utils/contracts"
+	"github.com/mantlenetworkio/da-challenger/flags"
 )
 
 func NewSettings(ctx *cli.Context) ChallengerSettings {

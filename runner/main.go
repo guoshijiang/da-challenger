@@ -10,9 +10,10 @@ import (
 
 	"github.com/Layr-Labs/datalayr/common/graphView"
 	"github.com/Layr-Labs/datalayr/common/logging"
-	"github.com/Layr-Labs/datalayr/middleware/rollup-example/challenger"
-	"github.com/Layr-Labs/datalayr/middleware/rollup-example/challenger/flags"
 	"github.com/Layr-Labs/datalayr/middleware/rollup-example/utils/contracts"
+	"github.com/mantlenetworkio/da-challenger"
+	"github.com/mantlenetworkio/da-challenger/flags"
+
 	"github.com/urfave/cli"
 )
 
