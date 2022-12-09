@@ -3,11 +3,7 @@ module github.com/mantlenetworkio/da-challenger
 go 1.18
 
 replace github.com/Layr-Labs/datalayr/common => ../mantle/datalayr-mantle/common
-
 replace github.com/Layr-Labs/datalayr/lib/merkzg => ../mantle/datalayr-mantle/lib/merkzg
-
-replace github.com/Layr-Labs/datalayr/lib/kzgFFT => ../mantle/datalayr-mantle/lib/kzgFFT
-
 replace github.com/mantlenetworkio/mt-batcher v0.0.0 => ../mantle/mt-batcher
 
 require (
