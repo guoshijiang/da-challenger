@@ -26,7 +26,7 @@ func Main(gitVersion string) func(ctx *cli.Context) error {
 			return err
 		}
 		sequencerPrivKey, _, err := bsscore.ParseWalletPrivKeyAndContractAddr(
-			"DaSequencer", cfg.Mnemonic, cfg.SequencerHDPath,
+			"DaChallenger", cfg.Mnemonic, cfg.SequencerHDPath,
 			cfg.PrivateKey, cfg.EigenContractAddress,
 		)
 		if err != nil {
@@ -69,8 +69,8 @@ func Main(gitVersion string) func(ctx *cli.Context) error {
 		if err := clager.Start(); err != nil {
 			return err
 		}
+		logger.Info().Msg("Da challenger service start")
 		defer clager.Stop()
 		return nil
-
 	}
 }

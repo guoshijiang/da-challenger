@@ -9,7 +9,7 @@ LDFLAGS := -ldflags "$(LDFLAGSSTRING)"
 
 EDLC_ABI_ARTIFACT := ./contract/da/BVM_EigenDataLayrChain.sol/BVM_EigenDataLayrChain.json
 
-challenger:
+da-challenger:
 	env GO111MODULE=on go build -v $(LDFLAGS) ./cmd/da-challenger
 
 clean:

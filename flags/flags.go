@@ -11,16 +11,12 @@ func prefixEnvVar(suffix string) string {
 	return envVarPrefix + "_" + suffix
 }
 
-// TODO: Some of these flags should be integers?
-
 var (
-	/* Required Flags */
-
-	RetrieverEndpointFlag = cli.StringFlag{
-		Name:     "retriever",
-		Usage:    "Endpoint at which retriever is available",
+	L1EthRpcFlag = cli.StringFlag{
+		Name:     "l1-eth-rpc",
+		Usage:    "HTTP provider URL for L1",
 		Required: true,
-		EnvVar:   prefixEnvVar("RETRIEVER"),
+		EnvVar:   prefixEnvVar("L1_ETH_RPC"),
 	}
 	L2MtlRpcFlag = cli.StringFlag{
 		Name:     "l2-mtl-rpc",
@@ -33,12 +29,6 @@ var (
 		Usage:    "Chain id for ethereum chain",
 		Required: true,
 		EnvVar:   prefixEnvVar("CHAIN_ID"),
-	}
-	L1EthRpcFlag = cli.StringFlag{
-		Name:     "l1-eth-rpc",
-		Usage:    "HTTP provider URL for L1",
-		Required: true,
-		EnvVar:   prefixEnvVar("L1_ETH_RPC"),
 	}
 	GraphProviderFlag = cli.StringFlag{
 		Name:     "graph-provider",
@@ -71,16 +61,10 @@ var (
 		EnvVar:   prefixEnvVar("ROLLUP_ADDRESS"),
 	}
 	RetrieverSocketFlag = cli.StringFlag{
-		Name:     "rollup-address",
+		Name:     "retriever-socket",
 		Usage:    "Address of the datalayr repository contract",
 		Required: true,
-		EnvVar:   prefixEnvVar("ROLLUP_ADDRESS"),
-	}
-	RollupAddressFlag = cli.StringFlag{
-		Name:     "rollup-address",
-		Usage:    "Address of the datalayr repository contract",
-		Required: true,
-		EnvVar:   prefixEnvVar("ROLLUP_ADDRESS"),
+		EnvVar:   prefixEnvVar("RETRIEVER_SOCKET"),
 	}
 	G1PathFlag = cli.StringFlag{
 		Name:     "g1-path",
@@ -129,12 +113,11 @@ var (
 
 var requiredFlags = []cli.Flag{
 	L1EthRpcFlag,
-	RetrieverEndpointFlag,
+	L2MtlRpcFlag,
 	ChainIdFlag,
 	GraphProviderFlag,
 	PrivateKeyFlag,
 	EigenContractAddressFlag,
-	RollupAddressFlag,
 	G1PathFlag,
 	G2PathFlag,
 	SrsTablePathFlag,
@@ -152,5 +135,4 @@ func init() {
 	Flags = append(Flags, logging.CLIFlags(envVarPrefix)...)
 }
 
-// Flags contains the list of configuration options available to the binary.
 var Flags []cli.Flag
