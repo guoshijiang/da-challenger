@@ -2,31 +2,38 @@ package challenger
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
-	"math/big"
-	"strings"
-	"time"
-
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/mantlenetworkio/da-challenger/contract/bindings"
+	"github.com/mantlenetworkio/mt-batcher/l1l2client"
 	"github.com/shurcooL/graphql"
 	"google.golang.org/grpc"
+	"log"
+	"math/big"
+	"strings"
+	"sync"
+	"time"
 
 	datalayr "github.com/Layr-Labs/datalayr/common/contracts"
 	kzg "github.com/Layr-Labs/datalayr/common/crypto/go-kzg-bn254"
-	chain "github.com/Layr-Labs/datalayr/middleware/rollup-example/utils/contracts"
-	rc "github.com/mantlenetworkio/da-challenger/common/BVM_EigenDataLayrChain"
+	rc "github.com/mantlenetworkio/da-challenger/contract/bindings"
+	l2ethclient "github.com/mantlenetworkio/mantle/l2geth/ethclient"
 
 	"github.com/Layr-Labs/datalayr/common/graphView"
 	pb "github.com/Layr-Labs/datalayr/common/interfaces/interfaceRetrieverServer"
 	"github.com/Layr-Labs/datalayr/common/logging"
 )
+
+const fraudString = "2d5f2860204f2060295f2d202d5f2860206f2060295f2d202d5f286020512060295f2d2042495444414f204a5553542052454b5420594f55207c5f2860204f2060295f7c202d207c5f2860206f2060295f7c202d207c5f286020512060295f7c"
 
 type KzgConfig struct {
 	G1Path    string
@@ -34,36 +41,6 @@ type KzgConfig struct {
 	TableDir  string
 	NumWorker int
 	Order     uint64 // Order is the total size of SRS
-}
-
-type ChallengerSettings struct {
-	ChainSettings     chain.ChainSettings
-	RollupSettings    RollupSettings
-	RetrieverSettings RetrieverSettings
-	KzgConfig         KzgConfig
-
-	LoggingConfig   logging.Config
-	GraphEndpoint   string
-	FromStoreNumber uint64
-}
-
-type Challenger struct {
-	ChallengerSettings
-
-	ChainClient *chain.ChainClient
-	GraphClient *graphView.GraphClient
-	Logger      *logging.Logger
-
-	lastStoreNumber uint64
-	Timeout         time.Duration
-}
-
-type RollupSettings struct {
-	Address common.Address
-}
-
-type RetrieverSettings struct {
-	Socket string
 }
 
 type Fraud struct {
@@ -83,161 +60,122 @@ type FraudProof struct {
 	StartingSymbolIndex int
 }
 
-//If any datastore contains this fraud string
-const fraudString = "2d5f2860204f2060295f2d202d5f2860206f2060295f2d202d5f286020512060295f2d2042495444414f204a5553542052454b5420594f55207c5f2860204f2060295f7c202d207c5f2860206f2060295f7c202d207c5f286020512060295f7c"
+type ChallengerConfig struct {
+	L1Client          *l1l2client.L1ChainClient
+	L2Client          *l2ethclient.Client
+	EigenContractAddr common.Address
+	Logger            *logging.Logger
+	PrivKey           *ecdsa.PrivateKey
+	GraphProvider     string
+	RetrieverSocket   string
+	KzgConfig         KzgConfig
+	LastStoreNumber   uint64
+	Timeout           time.Duration
+}
 
-func NewChallenger(
-	chainClient *chain.ChainClient,
-	graphClient *graphView.GraphClient,
-	logger *logging.Logger,
-	settings ChallengerSettings,
-	lastStoreNumber uint64,
-) *Challenger {
+type Challenger struct {
+	Ctx              context.Context
+	Cfg              *ChallengerConfig
+	EigenDaContract  *bindings.BVMEigenDataLayrChain
+	RawEigenContract *bind.BoundContract
+	WalletAddr       common.Address
+	EigenABI         *abi.ABI
+	L1ChainClient    *l1l2client.L1ChainClient
+	GraphClient      *graphView.GraphClient
+	GraphqlClient    *graphql.Client
+	cancel           func()
+	wg               sync.WaitGroup
+}
 
-	timeout, err := time.ParseDuration("12s")
+// If any datastore contains this fraud string
+func NewChallenger(ctx context.Context, cfg *ChallengerConfig) (*Challenger, error) {
+	eigenContract, err := bindings.NewBVMEigenDataLayrChain(
+		cfg.EigenContractAddr, cfg.L1Client.Client,
+	)
 	if err != nil {
-		logger.Fatal().Err(err).Msg("Improper timeout from config")
+		return nil, err
 	}
-
+	parsed, err := abi.JSON(strings.NewReader(
+		bindings.BVMEigenDataLayrChainABI,
+	))
+	if err != nil {
+		cfg.Logger.Err(err).Msg("parse eigenda contract abi fail")
+		return nil, err
+	}
+	eignenABI, err := bindings.BVMEigenDataLayrChainMetaData.GetAbi()
+	if err != nil {
+		cfg.Logger.Err(err).Msg("get eigenda contract abi fail")
+		return nil, err
+	}
+	rawEigenContract := bind.NewBoundContract(
+		cfg.EigenContractAddr, parsed, cfg.L1Client.Client, cfg.L1Client.Client,
+		cfg.L1Client.Client,
+	)
+	graphClient := graphView.NewGraphClient(cfg.GraphProvider, cfg.Logger)
+	graphqlClient := graphql.NewClient(graphClient.GetEndpoint(), nil)
+	walletAddr := crypto.PubkeyToAddress(cfg.PrivKey.PublicKey)
 	return &Challenger{
-		ChallengerSettings: settings,
-		ChainClient:        chainClient,
-		GraphClient:        graphClient,
-		Logger:             logger,
-		lastStoreNumber:    lastStoreNumber,
-		Timeout:            timeout,
-	}
+		Cfg:              cfg,
+		Ctx:              ctx,
+		EigenDaContract:  eigenContract,
+		RawEigenContract: rawEigenContract,
+		WalletAddr:       walletAddr,
+		EigenABI:         eignenABI,
+		L1ChainClient:    cfg.L1Client,
+		GraphClient:      graphClient,
+		GraphqlClient:    graphqlClient,
+	}, nil
 }
 
-//this function starts a loop that checks for fraud twice per second
-func (c *Challenger) FraudCheckLoop() {
-
-	// TODO: Handle errors
-	ticker := time.NewTicker(500 * time.Millisecond)
-
-	for {
-		<-ticker.C
-
-		//fetch the next datastore
-		store, err := c.getNextDataStore()
-		if err != nil {
-			continue
-		}
-
-		obj, _ := json.Marshal(store)
-		c.Logger.Info().Msg("Got store:" + string(obj))
-
-		data, frames, err := c.callRetrieve(store)
-		//retrieve the data associated with the store
-
-		if err != nil {
-			c.Logger.Error().Err(err).Msg("Error getting data")
-			continue
-		}
-
-		c.Logger.Info().Msg("Got data:" + hexutil.Encode(data))
-
-		//check if the fraud string exists within the data
-		fraud, exists := c.checkForFraud(store, data)
-		if !exists {
-			log.Println("No fraud", err)
-			continue
-		}
-
-		obj, _ = json.Marshal(fraud)
-		c.Logger.Info().Msg("Found fraud:" + string(obj))
-
-		proof, err := c.constructFraudProof(store, data, fraud, frames)
-		//construct the fraud proof if fraud was found
-
-		if err != nil {
-			c.Logger.Error().Err(err).Msg("Error constructing fraud")
-			continue
-		}
-
-		obj, _ = json.Marshal(proof)
-		c.Logger.Info().Msg("Fraud proof:" + string(obj))
-
-		obj, _ = json.Marshal(store)
-		c.Logger.Info().Msg("Store:" + string(obj))
-
-		//post the fraud proof to the chain
-		tx, err := c.postFraudProof(store, proof)
-		if err != nil {
-			c.Logger.Error().Err(err).Msg("Error posting fraud proof")
-			continue
-		}
-		c.Logger.Info().Msg("Fraud proof tx:" + tx.Hash().Hex())
-
-	}
-
-}
-
-//gets the next datastore from the graphql db that is after the most recent one the challenger has seen
+// gets the next datastore from the graphql db that is after the most recent one the challenger has seen
 func (c *Challenger) getNextDataStore() (*graphView.DataStore, error) {
-
 	var query struct {
 		DataStores []graphView.DataStoreGql `graphql:"dataStores(first:1,where:{storeNumber_gt: $lastStoreNumber,confirmer: $confirmer,confirmed:true})"`
 	}
 	variables := map[string]interface{}{
-		"lastStoreNumber": graphql.String(fmt.Sprint(c.lastStoreNumber)),
-		"confirmer":       graphql.String(strings.ToLower(c.RollupSettings.Address.Hex())),
+		"lastStoreNumber": graphql.String(fmt.Sprint(c.Cfg.LastStoreNumber)),
+		"confirmer":       graphql.String(strings.ToLower(c.Cfg.EigenContractAddr.Hex())),
 	}
-
-	client := graphql.NewClient(c.GraphClient.GetEndpoint(), nil)
-	err := client.Query(context.Background(), &query, variables)
+	err := c.GraphqlClient.Query(context.Background(), &query, variables)
 	if err != nil {
-		c.Logger.Error().Err(err).Msg("GetExpiringDataStores error")
+		c.Cfg.Logger.Error().Err(err).Msg("GetExpiringDataStores error")
 		return nil, err
 	}
-
 	if len(query.DataStores) == 0 {
 		return nil, errors.New("no new stores")
 	}
-
 	store, err := query.DataStores[0].Convert()
 	if err != nil {
 		return nil, errors.New("conversion error")
 	}
 	fmt.Println("challenger get store", store.StoreNumber)
-	//set the new lastStoreNumber to the retrieved store's number
-	c.lastStoreNumber = uint64(store.StoreNumber)
-
+	c.Cfg.LastStoreNumber = uint64(store.StoreNumber)
 	return store, nil
-
 }
 
 func (c *Challenger) callRetrieve(store *graphView.DataStore) ([]byte, []datalayr.Frame, error) {
-
-	socket := c.RetrieverSettings.Socket
-	fmt.Println("socket", socket)
-	conn, err := grpc.Dial(socket, grpc.WithInsecure())
+	conn, err := grpc.Dial(c.Cfg.RetrieverSocket, grpc.WithInsecure())
 	if err != nil {
-		c.Logger.Printf("Disperser Cannot connect to %v. %v\n", socket, err)
+		c.Cfg.Logger.Printf("Disperser Cannot connect to %v. %v\n", c.Cfg.RetrieverSocket, err)
 		return nil, nil, err
 	}
 	defer conn.Close()
 	client := pb.NewDataRetrievalClient(conn)
-	ctx, cancel := context.WithTimeout(context.Background(), c.Timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), c.Cfg.Timeout)
 	defer cancel()
-
 	opt := grpc.MaxCallRecvMsgSize(1024 * 1024 * 300)
 	request := &pb.FramesAndDataRequest{
 		DataStoreId: store.StoreNumber,
 	}
-
 	reply, err := client.RetrieveFramesAndData(ctx, request, opt)
-
 	if err != nil {
 		return nil, nil, err
 	}
-
 	data := reply.GetData()
-
 	framesBytes := reply.GetFrames()
 	header, err := datalayr.DecodeDataStoreHeader(store.Header)
 	if err != nil {
-		c.Logger.Printf("Could not decode header %v. %v\n", header, err)
+		c.Cfg.Logger.Printf("Could not decode header %v. %v\n", header, err)
 		return nil, nil, err
 	}
 	frames := make([]datalayr.Frame, header.NumSys+header.NumPar)
@@ -252,7 +190,7 @@ func (c *Challenger) callRetrieve(store *graphView.DataStore) ([]byte, []datalay
 	return data, frames, nil
 }
 
-//check if the fraud string exists within the data
+// check if the fraud string exists within the data
 func (c *Challenger) checkForFraud(store *graphView.DataStore, data []byte) (*Fraud, bool) {
 	dataString := hex.EncodeToString(data)
 	index := strings.Index(dataString, fraudString)
@@ -268,10 +206,10 @@ func (c *Challenger) constructFraudProof(store *graphView.DataStore, data []byte
 
 	header, err := datalayr.DecodeDataStoreHeader(store.Header)
 	if err != nil {
-		c.Logger.Printf("Could not decode header %v. %v\n", header, err)
+		c.Cfg.Logger.Printf("Could not decode header %v. %v\n", header, err)
 		return nil, err
 	}
-	config := c.ChallengerSettings.KzgConfig
+	config := c.Cfg.KzgConfig
 
 	s1 := kzg.ReadG1Points(config.G1Path, config.Order, config.NumWorker)
 	s2 := kzg.ReadG2Points(config.G2Path, config.Order, config.NumWorker)
@@ -312,11 +250,8 @@ func (c *Challenger) constructFraudProof(store *graphView.DataStore, data []byte
 	return &FraudProof{DataLayrDisclosureProof: disclosureProof, StartingSymbolIndex: startingSymbolIndex}, nil
 }
 
-//converts the fraud proof object to a format that the rollup contract can handle
-func (fp *DataLayrDisclosureProof) ToDisclosureProofs() rc.BVM_EigenDataLayrChainDisclosureProofs {
-
+func (fp *DataLayrDisclosureProof) ToDisclosureProofs() rc.BVMEigenDataLayrChainDisclosureProofs {
 	proofs := make([]rc.DataLayrDisclosureLogicMultiRevealProof, 0)
-
 	for _, oldProof := range fp.MultirevealProofs {
 		newProof := rc.DataLayrDisclosureLogicMultiRevealProof{
 			InterpolationPoly: rc.BN254G1Point{X: oldProof.InterpolationPolyCommit[0], Y: oldProof.InterpolationPolyCommit[1]},
@@ -330,8 +265,7 @@ func (fp *DataLayrDisclosureProof) ToDisclosureProofs() rc.BVM_EigenDataLayrChai
 		}
 		proofs = append(proofs, newProof)
 	}
-
-	return rc.BVM_EigenDataLayrChainDisclosureProofs{
+	return rc.BVMEigenDataLayrChainDisclosureProofs{
 		Header:            fp.Header,
 		FirstChunkNumber:  uint32(fp.StartingChunkIndex),
 		Polys:             fp.Polys,
@@ -342,14 +276,9 @@ func (fp *DataLayrDisclosureProof) ToDisclosureProofs() rc.BVM_EigenDataLayrChai
 			Y: [2]*big.Int{fp.BatchPolyEquivalenceProof[3], fp.BatchPolyEquivalenceProof[2]},
 		},
 	}
-
 }
 
 func (c *Challenger) postFraudProof(store *graphView.DataStore, fraudProof *FraudProof) (*types.Transaction, error) {
-	rollup, err := c.getRollupContractBinding()
-	if err != nil {
-		return nil, err
-	}
 	//prepare the datastore's serach data for metadata proving
 	searchData := rc.IDataLayrServiceManagerDataStoreSearchData{
 		Duration:  store.Duration,
@@ -365,31 +294,80 @@ func (c *Challenger) postFraudProof(store *graphView.DataStore, fraudProof *Frau
 			SignatoryRecordHash: store.SignatoryRecord,
 		},
 	}
-
 	//convert the disclosure proof to chain's expected format
 	disclosureProofs := fraudProof.ToDisclosureProofs()
-
-	auth := c.ChainClient.PrepareAuthTransactor()
+	auth := c.Cfg.L1Client.PrepareAuthTransactor()
 	//get the corresponding rollup store number
-	fraudStoreNumber, err := rollup.DataStoreIdToRollupStoreNumber(&bind.CallOpts{}, store.StoreNumber)
+	fraudStoreNumber, err := c.EigenDaContract.DataStoreIdToRollupStoreNumber(&bind.CallOpts{}, store.StoreNumber)
 	if err != nil {
 		return nil, err
 	}
-
 	//send the fraud proof to the chain
-	tx, err := rollup.ProveFraud(auth, fraudStoreNumber, new(big.Int).SetUint64(uint64(fraudProof.StartingSymbolIndex)), searchData, disclosureProofs)
-
+	tx, err := c.EigenDaContract.ProveFraud(auth, fraudStoreNumber, new(big.Int).SetUint64(uint64(fraudProof.StartingSymbolIndex)), searchData, disclosureProofs)
 	return tx, err
 }
 
-//gets the binding of the rollup contract
-func (c *Challenger) getRollupContractBinding() (*rc.Binding, error) {
+func (c *Challenger) Start() error {
+	c.wg.Add(1)
+	go c.eventLoop()
+	return nil
+}
 
-	rollup, err := rc.NewBinding(c.RollupSettings.Address, c.ChainClient.Client)
-	if err != nil {
-		return nil, err
+func (c *Challenger) Stop() {
+	// s.cancel()
+	c.wg.Wait()
+}
+
+func (c *Challenger) eventLoop() {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	for {
+		<-ticker.C
+		//fetch the next datastore
+		store, err := c.getNextDataStore()
+		if err != nil {
+			continue
+		}
+		obj, _ := json.Marshal(store)
+		c.Cfg.Logger.Info().Msg("Got store:" + string(obj))
+		data, frames, err := c.callRetrieve(store)
+		//retrieve the data associated with the store
+		if err != nil {
+			c.Cfg.Logger.Error().Err(err).Msg("Error getting data")
+			continue
+		}
+
+		c.Cfg.Logger.Info().Msg("Got data:" + hexutil.Encode(data))
+
+		//check if the fraud string exists within the data
+		fraud, exists := c.checkForFraud(store, data)
+		if !exists {
+			log.Println("No fraud", err)
+			continue
+		}
+
+		obj, _ = json.Marshal(fraud)
+		c.Cfg.Logger.Info().Msg("Found fraud:" + string(obj))
+
+		proof, err := c.constructFraudProof(store, data, fraud, frames)
+		//construct the fraud proof if fraud was found
+
+		if err != nil {
+			c.Cfg.Logger.Error().Err(err).Msg("Error constructing fraud")
+			continue
+		}
+
+		obj, _ = json.Marshal(proof)
+		c.Cfg.Logger.Info().Msg("Fraud proof:" + string(obj))
+
+		obj, _ = json.Marshal(store)
+		c.Cfg.Logger.Info().Msg("Store:" + string(obj))
+
+		//post the fraud proof to the chain
+		tx, err := c.postFraudProof(store, proof)
+		if err != nil {
+			c.Cfg.Logger.Error().Err(err).Msg("Error posting fraud proof")
+			continue
+		}
+		c.Cfg.Logger.Info().Msg("Fraud proof tx:" + tx.Hash().Hex())
 	}
-
-	return rollup, nil
-
 }
