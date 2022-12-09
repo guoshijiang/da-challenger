@@ -1,4 +1,4 @@
-package da_challenger
+package main
 
 import (
 	"fmt"
