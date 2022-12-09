@@ -22,18 +22,23 @@ var (
 		Required: true,
 		EnvVar:   prefixEnvVar("RETRIEVER"),
 	}
-
+	L2MtlRpcFlag = cli.StringFlag{
+		Name:     "l2-mtl-rpc",
+		Usage:    "HTTP provider URL for L2 execution engine",
+		Required: true,
+		EnvVar:   prefixEnvVar("L2_MTL_RPC"),
+	}
 	ChainIdFlag = cli.Uint64Flag{
 		Name:     "chain-id",
 		Usage:    "Chain id for ethereum chain",
 		Required: true,
 		EnvVar:   prefixEnvVar("CHAIN_ID"),
 	}
-	ChainProviderFlag = cli.StringFlag{
-		Name:     "chain-provider",
-		Usage:    "Ethereum chain rpc",
+	L1EthRpcFlag = cli.StringFlag{
+		Name:     "l1-eth-rpc",
+		Usage:    "HTTP provider URL for L1",
 		Required: true,
-		EnvVar:   prefixEnvVar("CHAIN_PROVIDER"),
+		EnvVar:   prefixEnvVar("L1_ETH_RPC"),
 	}
 	GraphProviderFlag = cli.StringFlag{
 		Name:     "graph-provider",
@@ -41,11 +46,35 @@ var (
 		Required: true,
 		EnvVar:   prefixEnvVar("GRAPH_PROVIDER"),
 	}
-	PrivateFlag = cli.StringFlag{
+	PrivateKeyFlag = cli.StringFlag{
 		Name:     "private",
 		Usage:    "Ethereum private key for node operator",
 		Required: true,
 		EnvVar:   prefixEnvVar("PRIVATE"),
+	}
+	MnemonicFlag = cli.StringFlag{
+		Name: "mnemonic",
+		Usage: "The mnemonic used to derive the wallets for either the " +
+			"sequencer or the proposer",
+		EnvVar: prefixEnvVar("MNEMONIC"),
+	}
+	SequencerHDPathFlag = cli.StringFlag{
+		Name: "sequencer-hd-path",
+		Usage: "The HD path used to derive the sequencer wallet from the " +
+			"mnemonic. The mnemonic flag must also be set.",
+		EnvVar: prefixEnvVar("SEQUENCER_HD_PATH"),
+	}
+	EigenContractAddressFlag = cli.StringFlag{
+		Name:     "rollup-address",
+		Usage:    "Address of the datalayr repository contract",
+		Required: true,
+		EnvVar:   prefixEnvVar("ROLLUP_ADDRESS"),
+	}
+	RetrieverSocketFlag = cli.StringFlag{
+		Name:     "rollup-address",
+		Usage:    "Address of the datalayr repository contract",
+		Required: true,
+		EnvVar:   prefixEnvVar("ROLLUP_ADDRESS"),
 	}
 	RollupAddressFlag = cli.StringFlag{
 		Name:     "rollup-address",
@@ -91,23 +120,31 @@ var (
 		Value:    4,
 		EnvVar:   prefixEnvVar("STARTING_STORE_NUMER"),
 	}
+	HTTP2DisableFlag = cli.BoolFlag{
+		Name:   "http2-disable",
+		Usage:  "Whether or not to disable HTTP/2 support.",
+		EnvVar: prefixEnvVar("HTTP2_DISABLE"),
+	}
 )
 
 var requiredFlags = []cli.Flag{
+	L1EthRpcFlag,
 	RetrieverEndpointFlag,
 	ChainIdFlag,
-	ChainProviderFlag,
 	GraphProviderFlag,
-	PrivateFlag,
+	PrivateKeyFlag,
+	EigenContractAddressFlag,
 	RollupAddressFlag,
 	G1PathFlag,
 	G2PathFlag,
 	SrsTablePathFlag,
 	OrderFlag,
+	RetrieverSocketFlag,
 }
 
 var optionalFlags = []cli.Flag{
 	KzgWorkersFlag,
+	HTTP2DisableFlag,
 }
 
 func init() {

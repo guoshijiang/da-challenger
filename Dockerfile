@@ -1,21 +1,20 @@
 FROM golang:1.18.0-alpine3.15 as builder
 
-RUN apk add --no-cache make musl-dev linux-headers gcc git jq bash
+RUN apk add --no-cache make gcc musl-dev linux-headers git jq bash
 
-# build dl-challenger with local monorepo go modules
-COPY ./middleware /app/middleware
-COPY ./common /app/common
-COPY ./lib /app/lib
+COPY ./mt-batcher /go/mt-batcher
+COPY ./bss-core /go/bss-core
+COPY ./l2geth /go/l2geth
+COPY ./mt-batcher/docker.go.work /go/go.work
 
-WORKDIR /app/middleware/rollup-example/challenger
-
-RUN make 
-
+WORKDIR /go/mt-batcher
+RUN make
 
 FROM alpine:3.15
 
-RUN apk add netcat-openbsd
+RUN apk add --no-cache ca-certificates jq curl
+COPY --from=builder /go/mt-batcher/mt-batcher /usr/local/bin/
 
-COPY --from=builder /app/middleware/rollup-example/challenger/bin/challenger /usr/local/bin
-
-ENTRYPOINT ["challenger"]
+WORKDIR /usr/local/bin
+COPY ./ops/scripts/mt-batcher.sh .
+ENTRYPOINT ["mt-batcher"]
