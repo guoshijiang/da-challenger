@@ -21,7 +21,7 @@ func Main(gitVersion string) func(ctx *cli.Context) error {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		logger, err := logging.GetLogger(logging.Config{})
+		logger, err := logging.GetLogger(cfg.LoggingConfig)
 		if err != nil {
 			return err
 		}
@@ -42,10 +42,12 @@ func Main(gitVersion string) func(ctx *cli.Context) error {
 		if err != nil {
 			return err
 		}
+		logger.Info().Msg("l1Client init success")
 		l2Client, err := l1l2client.DialL2EthClientWithTimeout(ctx, cfg.L2MtlRpc, cfg.DisableHTTP2)
 		if err != nil {
 			return err
 		}
+		logger.Info().Msg("l2Client init success")
 		timeout, err := time.ParseDuration("12s")
 		if err != nil {
 			logger.Fatal().Err(err).Msg("Improper timeout from config")

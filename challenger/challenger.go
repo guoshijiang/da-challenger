@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	datalayr "github.com/Layr-Labs/datalayr/common/contracts"
+	kzg "github.com/Layr-Labs/datalayr/common/crypto/go-kzg-bn254"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -15,19 +17,17 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/mantlenetworkio/da-challenger/contract/bindings"
+	rc "github.com/mantlenetworkio/da-challenger/contract/bindings"
+	l2types "github.com/mantlenetworkio/mantle/l2geth/core/types"
+	l2ethclient "github.com/mantlenetworkio/mantle/l2geth/ethclient"
+	l2rlp "github.com/mantlenetworkio/mantle/l2geth/rlp"
 	"github.com/mantlenetworkio/mt-batcher/l1l2client"
 	"github.com/shurcooL/graphql"
 	"google.golang.org/grpc"
-	"log"
 	"math/big"
 	"strings"
 	"sync"
 	"time"
-
-	datalayr "github.com/Layr-Labs/datalayr/common/contracts"
-	kzg "github.com/Layr-Labs/datalayr/common/crypto/go-kzg-bn254"
-	rc "github.com/mantlenetworkio/da-challenger/contract/bindings"
-	l2ethclient "github.com/mantlenetworkio/mantle/l2geth/ethclient"
 
 	"github.com/Layr-Labs/datalayr/common/graphView"
 	pb "github.com/Layr-Labs/datalayr/common/interfaces/interfaceRetrieverServer"
@@ -337,30 +337,26 @@ func (c *Challenger) eventLoop() {
 			continue
 		}
 		c.Cfg.Logger.Info().Msg("Got data:" + hexutil.Encode(data))
+		l2Tx := new(l2types.Transaction)
+		rlpStream := l2rlp.NewStream(bytes.NewBuffer(data), 0)
+		if err := l2Tx.DecodeRLP(rlpStream); err != nil {
+			c.Cfg.Logger.Error().Err(err).Msg("Decode RLP fail")
+		}
+		c.Cfg.Logger.Info().Msg("tx hash:" + l2Tx.Hash().Hex())
 		// tx check for tmp, will remove in future
-		bigOne := new(big.Int).SetUint64(1)
-		l2Block, err := c.Cfg.L2Client.BlockByNumber(c.Ctx, bigOne)
+		l2Transaction, _, err := c.Cfg.L2Client.TransactionByHash(c.Ctx, l2Tx.Hash())
 		if err != nil {
-			c.Cfg.Logger.Error().Err(err).Msg("Error getting l2 block")
+			c.Cfg.Logger.Error().Err(err).Msg("No this transaction")
+			continue
 		}
-		txs := l2Block.Transactions()
-		var txBuf bytes.Buffer
-		if err := txs[0].EncodeRLP(&txBuf); err != nil {
-			panic(fmt.Sprintf("Unable to encode tx: %v", err))
-		}
-		// check tx here
-		if !bytes.Equal(txBuf.Bytes(), data) {
-			c.Cfg.Logger.Error().Err(err).Msg("Eigen Node tx and l2geth tx is diffrent")
-		}
-		//check if the fraud string exists within the data
+		c.Cfg.Logger.Info().Msg("fond transaction, hash is" + l2Transaction.Hash().Hex())
+		// check if the fraud string exists within the data
 		fraud, exists := c.checkForFraud(store, data)
 		if !exists {
-			log.Println("No fraud", err)
+			c.Cfg.Logger.Info().Msg("No fraud")
 			continue
 		}
 		obj, _ = json.Marshal(fraud)
-		c.Cfg.Logger.Info().Msg("Found fraud:" + string(obj))
-
 		proof, err := c.constructFraudProof(store, data, fraud, frames)
 		if err != nil {
 			c.Cfg.Logger.Error().Err(err).Msg("Error constructing fraud")
@@ -368,10 +364,9 @@ func (c *Challenger) eventLoop() {
 		}
 		obj, _ = json.Marshal(proof)
 		c.Cfg.Logger.Info().Msg("Fraud proof:" + string(obj))
-
 		obj, _ = json.Marshal(store)
 		c.Cfg.Logger.Info().Msg("Store:" + string(obj))
-		//post the fraud proof to the chain
+		// post the fraud proof to the chain
 		tx, err := c.postFraudProof(store, proof)
 		if err != nil {
 			c.Cfg.Logger.Error().Err(err).Msg("Error posting fraud proof")

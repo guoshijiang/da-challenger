@@ -1,6 +1,7 @@
 package challenger
 
 import (
+	"github.com/Layr-Labs/datalayr/common/logging"
 	"github.com/mantlenetworkio/da-challenger/challenger"
 	"github.com/mantlenetworkio/da-challenger/flags"
 	"github.com/urfave/cli"
@@ -19,6 +20,8 @@ type Config struct {
 	KzgConfig            challenger.KzgConfig
 	FromStoreNumber      uint64
 	DisableHTTP2         bool
+
+	LoggingConfig logging.Config
 }
 
 func NewConfig(ctx *cli.Context) (Config, error) {
@@ -39,6 +42,7 @@ func NewConfig(ctx *cli.Context) (Config, error) {
 			Order:     ctx.GlobalUint64(flags.OrderFlag.Name),
 			NumWorker: ctx.GlobalInt(flags.KzgWorkersFlag.Name),
 		},
+		LoggingConfig:   logging.ReadCLIConfig(ctx),
 		FromStoreNumber: ctx.GlobalUint64(flags.StartStoreNumFlag.Name),
 		DisableHTTP2:    ctx.GlobalBool(flags.HTTP2DisableFlag.Name),
 	}
