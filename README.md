@@ -38,7 +38,7 @@ make da-challenger
 
 ### start 
 
-Config .env, You can refer to .env_example, if config finish, you can exec following command
+Config .env, You can refer to .env_example, if config finished, you can exec following command
 
 ```bash
 ./da-challenger
