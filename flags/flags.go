@@ -5,7 +5,7 @@ import (
 	"github.com/urfave/cli"
 )
 
-const envVarPrefix = "CHALLENGER"
+const envVarPrefix = "DA_CHALLENGER"
 
 func prefixEnvVar(suffix string) string {
 	return envVarPrefix + "_" + suffix
@@ -37,10 +37,10 @@ var (
 		EnvVar:   prefixEnvVar("GRAPH_PROVIDER"),
 	}
 	PrivateKeyFlag = cli.StringFlag{
-		Name:     "private",
+		Name:     "private-key",
 		Usage:    "Ethereum private key for node operator",
 		Required: true,
-		EnvVar:   prefixEnvVar("PRIVATE"),
+		EnvVar:   prefixEnvVar("PRIVATE_KEY"),
 	}
 	MnemonicFlag = cli.StringFlag{
 		Name: "mnemonic",
@@ -58,7 +58,7 @@ var (
 		Name:     "rollup-address",
 		Usage:    "Address of the datalayr repository contract",
 		Required: true,
-		EnvVar:   prefixEnvVar("ROLLUP_ADDRESS"),
+		EnvVar:   prefixEnvVar("EIGEN_CONTRACT_ADDRESS"),
 	}
 	RetrieverSocketFlag = cli.StringFlag{
 		Name:     "retriever-socket",

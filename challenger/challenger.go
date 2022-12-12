@@ -1,6 +1,7 @@
 package challenger
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
@@ -335,33 +336,41 @@ func (c *Challenger) eventLoop() {
 			c.Cfg.Logger.Error().Err(err).Msg("Error getting data")
 			continue
 		}
-
 		c.Cfg.Logger.Info().Msg("Got data:" + hexutil.Encode(data))
-
+		// tx check for tmp, will remove in future
+		bigOne := new(big.Int).SetUint64(1)
+		l2Block, err := c.Cfg.L2Client.BlockByNumber(c.Ctx, bigOne)
+		if err != nil {
+			c.Cfg.Logger.Error().Err(err).Msg("Error getting l2 block")
+		}
+		txs := l2Block.Transactions()
+		var txBuf bytes.Buffer
+		if err := txs[0].EncodeRLP(&txBuf); err != nil {
+			panic(fmt.Sprintf("Unable to encode tx: %v", err))
+		}
+		// check tx here
+		if !bytes.Equal(txBuf.Bytes(), data) {
+			c.Cfg.Logger.Error().Err(err).Msg("Eigen Node tx and l2geth tx is diffrent")
+		}
 		//check if the fraud string exists within the data
 		fraud, exists := c.checkForFraud(store, data)
 		if !exists {
 			log.Println("No fraud", err)
 			continue
 		}
-
 		obj, _ = json.Marshal(fraud)
 		c.Cfg.Logger.Info().Msg("Found fraud:" + string(obj))
 
 		proof, err := c.constructFraudProof(store, data, fraud, frames)
-		//construct the fraud proof if fraud was found
-
 		if err != nil {
 			c.Cfg.Logger.Error().Err(err).Msg("Error constructing fraud")
 			continue
 		}
-
 		obj, _ = json.Marshal(proof)
 		c.Cfg.Logger.Info().Msg("Fraud proof:" + string(obj))
 
 		obj, _ = json.Marshal(store)
 		c.Cfg.Logger.Info().Msg("Store:" + string(obj))
-
 		//post the fraud proof to the chain
 		tx, err := c.postFraudProof(store, proof)
 		if err != nil {
