@@ -349,7 +349,7 @@ func (c *Challenger) eventLoop() {
 			c.Cfg.Logger.Error().Err(err).Msg("No this transaction")
 			continue
 		}
-		c.Cfg.Logger.Info().Msg("fond transaction, hash is" + l2Transaction.Hash().Hex())
+		c.Cfg.Logger.Info().Msg("fond transaction, hash is " + l2Transaction.Hash().Hex())
 		// check if the fraud string exists within the data
 		fraud, exists := c.checkForFraud(store, data)
 		if !exists {
